@@ -1,104 +1,576 @@
--- SERVICIOS
+-- LocalScript -> StarterPlayer > StarterPlayerScripts
+
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local activo = false
+local playerGui = player:WaitForChild("PlayerGui")
 
+--------------------------------------------------------------------
+-- CONFIGURACION
+--------------------------------------------------------------------
+
+local TITULO = "Mi Panel"
+
+local COLOR_FONDO = Color3.fromRGB(25, 25, 32)
+local COLOR_BARRA = Color3.fromRGB(40, 40, 52)
+local COLOR_FILA = Color3.fromRGB(35, 35, 45)
+local COLOR_ON = Color3.fromRGB(80, 200, 120)
+local COLOR_OFF = Color3.fromRGB(90, 90, 105)
+local COLOR_TEXTO = Color3.fromRGB(240, 240, 245)
+
+local infoTween = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Valores que se pueden subir/bajar con los botones - y +
+local ajustes = {
+	velocidad = 32,  -- WalkSpeed
+	salto = 100,     -- JumpPower (altura del salto)
+	vuelo = 60,      -- velocidad al volar
+}
+
+local GRAVEDAD_BAJA = 60
+local gravedadOriginal = workspace.Gravity
+
+--------------------------------------------------------------------
+-- PERSONAJE
+--------------------------------------------------------------------
+
+local personaje
+local humanoid
+local root
+
+local function actualizarPersonaje(char)
+	personaje = char
+	humanoid = char:WaitForChild("Humanoid")
+	root = char:WaitForChild("HumanoidRootPart")
+end
+
+if player.Character then
+	actualizarPersonaje(player.Character)
+end
+
+player.CharacterAdded:Connect(actualizarPersonaje)
+
+local function obtenerPersonaje()
+	if not personaje or not personaje.Parent then
+		actualizarPersonaje(player.Character or player.CharacterAdded:Wait())
+	end
+
+	humanoid = personaje:WaitForChild("Humanoid")
+	root = personaje:WaitForChild("HumanoidRootPart")
+
+	return humanoid, root
+end
+
+--------------------------------------------------------------------
+-- 1. TRASPASAR PAREDES
+--------------------------------------------------------------------
+
+local conexionesNoclip
+local colisionesOriginales = {}
+
+local function Noclip(activar)
+	if conexionesNoclip then
+		conexionesNoclip:Disconnect()
+		conexionesNoclip = nil
+	end
+
+	if activar then
+		conexionesNoclip = RunService.Stepped:Connect(function()
+			if not personaje then return end
+
+			for _, objeto in ipairs(personaje:GetDescendants()) do
+				if objeto:IsA("BasePart") then
+					if colisionesOriginales[objeto] == nil then
+						colisionesOriginales[objeto] = objeto.CanCollide
+					end
+					objeto.CanCollide = false
+				end
+			end
+		end)
+	else
+		for objeto, valor in pairs(colisionesOriginales) do
+			if objeto.Parent then
+				objeto.CanCollide = valor
+			end
+		end
+		table.clear(colisionesOriginales)
+	end
+end
+
+--------------------------------------------------------------------
+-- 2. VOLAR
+--------------------------------------------------------------------
+
+local vueloConnection
+local bodyVelocity
+local bodyGyro
+
+local function Volar(activar)
+	if vueloConnection then
+		vueloConnection:Disconnect()
+		vueloConnection = nil
+	end
+
+	if bodyVelocity then
+		bodyVelocity:Destroy()
+		bodyVelocity = nil
+	end
+
+	if bodyGyro then
+		bodyGyro:Destroy()
+		bodyGyro = nil
+	end
+
+	if not activar then
+		if humanoid then
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+		return
+	end
+
+	local hum, hrp = obtenerPersonaje()
+
+	hum:ChangeState(Enum.HumanoidStateType.Physics)
+
+	bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
+	bodyVelocity.Velocity = Vector3.zero
+	bodyVelocity.Parent = hrp
+
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.MaxTorque = Vector3.new(100000, 100000, 100000)
+	bodyGyro.P = 10000
+	bodyGyro.Parent = hrp
+
+	vueloConnection = RunService.RenderStepped:Connect(function()
+		if not root or not root.Parent then return end
+
+		local camara = workspace.CurrentCamera
+		if not camara then return end
+
+		local direccion = Vector3.zero
+
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+			direccion += camara.CFrame.LookVector
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+			direccion -= camara.CFrame.LookVector
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+			direccion += camara.CFrame.RightVector
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+			direccion -= camara.CFrame.RightVector
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+			direccion += Vector3.yAxis
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+			direccion -= Vector3.yAxis
+		end
+
+		if direccion.Magnitude > 0 then
+			bodyVelocity.Velocity = direccion.Unit * ajustes.vuelo
+		else
+			bodyVelocity.Velocity = Vector3.zero
+		end
+
+		bodyGyro.CFrame = camara.CFrame
+	end)
+end
+
+--------------------------------------------------------------------
+-- 3. SALTO AUMENTADO
+--------------------------------------------------------------------
+
+local saltoOriginal
+
+local function Salto(activar)
+	local hum = obtenerPersonaje()
+
+	if activar then
+		if saltoOriginal == nil then
+			saltoOriginal = hum.JumpPower
+		end
+		hum.UseJumpPower = true
+		hum.JumpPower = ajustes.salto
+	else
+		if saltoOriginal then
+			hum.JumpPower = saltoOriginal
+			saltoOriginal = nil
+		end
+	end
+end
+
+--------------------------------------------------------------------
+-- 4. VELOCIDAD AUMENTADA
+--------------------------------------------------------------------
+
+local velocidadOriginal
+
+local function Velocidad(activar)
+	local hum = obtenerPersonaje()
+
+	if activar then
+		if velocidadOriginal == nil then
+			velocidadOriginal = hum.WalkSpeed
+		end
+		hum.WalkSpeed = ajustes.velocidad
+	else
+		if velocidadOriginal then
+			hum.WalkSpeed = velocidadOriginal
+			velocidadOriginal = nil
+		end
+	end
+end
+
+--------------------------------------------------------------------
+-- 5. SALTO INFINITO
+--------------------------------------------------------------------
+
+local saltoInfinitoConn
+
+local function SaltoInfinito(activar)
+	if saltoInfinitoConn then
+		saltoInfinitoConn:Disconnect()
+		saltoInfinitoConn = nil
+	end
+
+	if activar then
+		saltoInfinitoConn = UserInputService.JumpRequest:Connect(function()
+			if humanoid then
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+		end)
+	end
+end
+
+--------------------------------------------------------------------
+-- 6. GRAVEDAD BAJA
+--------------------------------------------------------------------
+
+local function Gravedad(activar)
+	workspace.Gravity = activar and GRAVEDAD_BAJA or gravedadOriginal
+end
+
+--------------------------------------------------------------------
+-- OPCIONES DEL PANEL
+-- tipo "interruptor": se enciende/apaga
+-- tipo "numero": botones - y + que cambian un valor de "ajustes"
+--------------------------------------------------------------------
+
+local estados = {}
+
+local opciones = {
+	{tipo = "interruptor", nombre = "Traspasar paredes", alCambiar = Noclip},
+	{tipo = "interruptor", nombre = "Volar", alCambiar = Volar},
+	{tipo = "numero", nombre = "Vel. de vuelo", clave = "vuelo", min = 20, max = 300, paso = 20},
+
+	{tipo = "interruptor", nombre = "Velocidad aumentada", alCambiar = Velocidad},
+	{tipo = "numero", nombre = "Velocidad", clave = "velocidad", min = 16, max = 300, paso = 8,
+		alAjustar = function()
+			if estados["Velocidad aumentada"] then Velocidad(true) end
+		end},
+
+	{tipo = "interruptor", nombre = "Salto aumentado", alCambiar = Salto},
+	{tipo = "numero", nombre = "Altura de salto", clave = "salto", min = 50, max = 400, paso = 25,
+		alAjustar = function()
+			if estados["Salto aumentado"] then Salto(true) end
+		end},
+
+	{tipo = "interruptor", nombre = "Salto infinito", alCambiar = SaltoInfinito},
+	{tipo = "interruptor", nombre = "Gravedad baja", alCambiar = Gravedad},
+}
+
+--------------------------------------------------------------------
+-- FUNCION PARA REDONDEAR
+--------------------------------------------------------------------
+
+local function redondear(objeto, radio)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radio)
+	corner.Parent = objeto
+end
+
+--------------------------------------------------------------------
 -- CREAR SCREEN GUI
+--------------------------------------------------------------------
+
 local gui = Instance.new("ScreenGui")
-gui.Name = "InterfazNoclip"
+gui.Name = "PanelOpciones"
 gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
+gui.Parent = playerGui
 
--- FRAME PRINCIPAL
-local frame = Instance.new("Frame")
-frame.Name = "Principal"
-frame.Size = UDim2.new(0, 250, 0, 170)
-frame.Position = UDim2.new(0.5, -125, 0.5, -85)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-frame.BorderSizePixel = 0
-frame.Parent = gui
+--------------------------------------------------------------------
+-- PANEL PRINCIPAL
+--------------------------------------------------------------------
 
--- ESQUINAS
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = frame
+local panel = Instance.new("Frame")
+panel.Name = "Panel"
+panel.Size = UDim2.new(0, 280, 0, 60 + (#opciones * 46))
+panel.Position = UDim2.new(0.5, -140, 0.5, -((60 + #opciones * 46) / 2))
+panel.BackgroundColor3 = COLOR_FONDO
+panel.BorderSizePixel = 0
+panel.Parent = gui
 
--- TITULO
+redondear(panel, 12)
+
+--------------------------------------------------------------------
+-- BARRA
+--------------------------------------------------------------------
+
+local barra = Instance.new("Frame")
+barra.Name = "Barra"
+barra.Size = UDim2.new(1, 0, 0, 40)
+barra.BackgroundColor3 = COLOR_BARRA
+barra.BorderSizePixel = 0
+barra.Parent = panel
+
+redondear(barra, 12)
+
 local titulo = Instance.new("TextLabel")
-titulo.Size = UDim2.new(1, 0, 0, 40)
+titulo.Size = UDim2.new(1, -50, 1, 0)
+titulo.Position = UDim2.new(0, 14, 0, 0)
 titulo.BackgroundTransparency = 1
-titulo.Text = "PANEL NOCLIP"
-titulo.TextColor3 = Color3.fromRGB(255, 255, 255)
-titulo.TextSize = 20
+titulo.Text = TITULO
+titulo.TextColor3 = COLOR_TEXTO
 titulo.Font = Enum.Font.GothamBold
-titulo.Parent = frame
+titulo.TextSize = 16
+titulo.TextXAlignment = Enum.TextXAlignment.Left
+titulo.Parent = barra
 
--- BOTON NOCLIP
-local boton = Instance.new("TextButton")
-boton.Size = UDim2.new(0.8, 0, 0, 45)
-boton.Position = UDim2.new(0.1, 0, 0, 60)
-boton.BackgroundColor3 = Color3.fromRGB(180, 45, 45)
-boton.Text = "Noclip: DESACTIVADO"
-boton.TextColor3 = Color3.new(1, 1, 1)
-boton.TextSize = 14
-boton.Font = Enum.Font.GothamBold
-boton.Parent = frame
-
-local botonCorner = Instance.new("UICorner")
-botonCorner.CornerRadius = UDim.new(0, 8)
-botonCorner.Parent = boton
-
+--------------------------------------------------------------------
 -- BOTON CERRAR
-local cerrar = Instance.new("TextButton")
-cerrar.Size = UDim2.new(0.8, 0, 0, 35)
-cerrar.Position = UDim2.new(0.1, 0, 0, 120)
-cerrar.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
-cerrar.Text = "Cerrar"
-cerrar.TextColor3 = Color3.new(1, 1, 1)
-cerrar.TextSize = 14
-cerrar.Font = Enum.Font.Gotham
-cerrar.Parent = frame
+--------------------------------------------------------------------
 
--- ACTIVAR / DESACTIVAR
-boton.MouseButton1Click:Connect(function()
+local botonCerrar = Instance.new("TextButton")
+botonCerrar.Size = UDim2.new(0, 28, 0, 28)
+botonCerrar.Position = UDim2.new(1, -36, 0, 6)
+botonCerrar.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+botonCerrar.Text = "X"
+botonCerrar.TextColor3 = COLOR_TEXTO
+botonCerrar.Font = Enum.Font.GothamBold
+botonCerrar.TextSize = 14
+botonCerrar.Parent = barra
 
-    activo = not activo
+redondear(botonCerrar, 8)
 
-    if activo then
-        boton.Text = "Noclip: ACTIVADO"
-        boton.BackgroundColor3 = Color3.fromRGB(35, 160, 80)
-    else
-        boton.Text = "Noclip: DESACTIVADO"
-        boton.BackgroundColor3 = Color3.fromRGB(180, 45, 45)
-    end
+--------------------------------------------------------------------
+-- LISTA DE OPCIONES
+--------------------------------------------------------------------
 
+local lista = Instance.new("Frame")
+lista.Name = "Lista"
+lista.Size = UDim2.new(1, -20, 1, -50)
+lista.Position = UDim2.new(0, 10, 0, 46)
+lista.BackgroundTransparency = 1
+lista.Parent = panel
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 6)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = lista
+
+--------------------------------------------------------------------
+-- BOTON ABRIR
+--------------------------------------------------------------------
+
+local botonAbrir = Instance.new("TextButton")
+botonAbrir.Size = UDim2.new(0, 90, 0, 32)
+botonAbrir.Position = UDim2.new(0, 10, 0.5, -16)
+botonAbrir.BackgroundColor3 = COLOR_BARRA
+botonAbrir.Text = "Abrir panel"
+botonAbrir.TextColor3 = COLOR_TEXTO
+botonAbrir.Font = Enum.Font.GothamMedium
+botonAbrir.TextSize = 13
+botonAbrir.Visible = false
+botonAbrir.Parent = gui
+
+redondear(botonAbrir, 8)
+
+--------------------------------------------------------------------
+-- CREAR FILAS
+--------------------------------------------------------------------
+
+local function crearBotonPequeno(texto, posicion, padre)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 30, 0, 26)
+	b.Position = posicion
+	b.BackgroundColor3 = COLOR_BARRA
+	b.Text = texto
+	b.TextColor3 = COLOR_TEXTO
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 16
+	b.Parent = padre
+	redondear(b, 8)
+	return b
+end
+
+for i, opcion in ipairs(opciones) do
+
+	local fila = Instance.new("Frame")
+	fila.Size = UDim2.new(1, 0, 0, 40)
+	fila.BackgroundColor3 = COLOR_FILA
+	fila.BorderSizePixel = 0
+	fila.LayoutOrder = i
+	fila.Parent = lista
+
+	redondear(fila, 8)
+
+	local texto = Instance.new("TextLabel")
+	texto.Size = UDim2.new(1, -110, 1, 0)
+	texto.Position = UDim2.new(0, 12, 0, 0)
+	texto.BackgroundTransparency = 1
+	texto.Text = opcion.nombre
+	texto.TextColor3 = COLOR_TEXTO
+	texto.Font = Enum.Font.GothamMedium
+	texto.TextSize = 14
+	texto.TextXAlignment = Enum.TextXAlignment.Left
+	texto.Parent = fila
+
+	if opcion.tipo == "interruptor" then
+
+		local activado = false
+		estados[opcion.nombre] = false
+		texto.Size = UDim2.new(1, -70, 1, 0)
+
+		local interruptor = Instance.new("TextButton")
+		interruptor.Size = UDim2.new(0, 44, 0, 22)
+		interruptor.Position = UDim2.new(1, -56, 0.5, -11)
+		interruptor.BackgroundColor3 = COLOR_OFF
+		interruptor.Text = ""
+		interruptor.AutoButtonColor = false
+		interruptor.Parent = fila
+
+		redondear(interruptor, 11)
+
+		local bolita = Instance.new("Frame")
+		bolita.Size = UDim2.new(0, 18, 0, 18)
+		bolita.Position = UDim2.new(0, 2, 0.5, -9)
+		bolita.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		bolita.BorderSizePixel = 0
+		bolita.Parent = interruptor
+
+		redondear(bolita, 9)
+
+		interruptor.MouseButton1Click:Connect(function()
+			activado = not activado
+			estados[opcion.nombre] = activado
+
+			TweenService:Create(interruptor, infoTween, {
+				BackgroundColor3 = activado and COLOR_ON or COLOR_OFF
+			}):Play()
+
+			TweenService:Create(bolita, infoTween, {
+				Position = activado
+					and UDim2.new(1, -20, 0.5, -9)
+					or UDim2.new(0, 2, 0.5, -9)
+			}):Play()
+
+			opcion.alCambiar(activado)
+		end)
+
+	else -- tipo "numero"
+
+		local function refrescar()
+			texto.Text = opcion.nombre .. ": " .. ajustes[opcion.clave]
+		end
+		refrescar()
+
+		local menos = crearBotonPequeno("-", UDim2.new(1, -78, 0.5, -13), fila)
+		local mas = crearBotonPequeno("+", UDim2.new(1, -42, 0.5, -13), fila)
+
+		local function cambiar(delta)
+			ajustes[opcion.clave] = math.clamp(
+				ajustes[opcion.clave] + delta,
+				opcion.min,
+				opcion.max
+			)
+			refrescar()
+			if opcion.alAjustar then
+				opcion.alAjustar()
+			end
+		end
+
+		menos.MouseButton1Click:Connect(function() cambiar(-opcion.paso) end)
+		mas.MouseButton1Click:Connect(function() cambiar(opcion.paso) end)
+	end
+end
+
+--------------------------------------------------------------------
+-- REAPLICAR AL REAPARECER
+--------------------------------------------------------------------
+
+player.CharacterAdded:Connect(function()
+	task.wait(0.5)
+
+	velocidadOriginal = nil
+	saltoOriginal = nil
+	table.clear(colisionesOriginales)
+
+	for _, opcion in ipairs(opciones) do
+		if opcion.tipo == "interruptor" and estados[opcion.nombre] then
+			opcion.alCambiar(true)
+		end
+	end
 end)
 
--- ATRAVESAR OBJETOS
-local conexion
+--------------------------------------------------------------------
+-- ARRASTRAR PANEL
+--------------------------------------------------------------------
 
-conexion = RunService.Stepped:Connect(function()
+local arrastrando = false
+local inicioMouse
+local inicioPanel
 
-    if not activo then return end
+barra.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
 
-    local personaje = player.Character
-    if not personaje then return end
-
-    for _, objeto in ipairs(personaje:GetDescendants()) do
-
-        if objeto:IsA("BasePart") then
-            objeto.CanCollide = false
-        end
-
-    end
-
+		arrastrando = true
+		inicioMouse = input.Position
+		inicioPanel = panel.Position
+	end
 end)
 
--- CERRAR INTERFAZ
-cerrar.MouseButton1Click:Connect(function()
-    activo = false
-    gui:Destroy()
-    conexion:Disconnect()
+UserInputService.InputChanged:Connect(function(input)
+	if arrastrando and (
+		input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch
+	) then
+
+		local delta = input.Position - inicioMouse
+
+		panel.Position = UDim2.new(
+			inicioPanel.X.Scale,
+			inicioPanel.X.Offset + delta.X,
+			inicioPanel.Y.Scale,
+			inicioPanel.Y.Offset + delta.Y
+		)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+
+		arrastrando = false
+	end
+end)
+
+--------------------------------------------------------------------
+-- ABRIR Y CERRAR
+--------------------------------------------------------------------
+
+botonCerrar.MouseButton1Click:Connect(function()
+	panel.Visible = false
+	botonAbrir.Visible = true
+end)
+
+botonAbrir.MouseButton1Click:Connect(function()
+	panel.Visible = true
+	botonAbrir.Visible = false
 end)
