@@ -1,0 +1,104 @@
+-- SERVICIOS
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local activo = false
+
+-- CREAR SCREEN GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "InterfazNoclip"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+-- FRAME PRINCIPAL
+local frame = Instance.new("Frame")
+frame.Name = "Principal"
+frame.Size = UDim2.new(0, 250, 0, 170)
+frame.Position = UDim2.new(0.5, -125, 0.5, -85)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+
+-- ESQUINAS
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = frame
+
+-- TITULO
+local titulo = Instance.new("TextLabel")
+titulo.Size = UDim2.new(1, 0, 0, 40)
+titulo.BackgroundTransparency = 1
+titulo.Text = "PANEL NOCLIP"
+titulo.TextColor3 = Color3.fromRGB(255, 255, 255)
+titulo.TextSize = 20
+titulo.Font = Enum.Font.GothamBold
+titulo.Parent = frame
+
+-- BOTON NOCLIP
+local boton = Instance.new("TextButton")
+boton.Size = UDim2.new(0.8, 0, 0, 45)
+boton.Position = UDim2.new(0.1, 0, 0, 60)
+boton.BackgroundColor3 = Color3.fromRGB(180, 45, 45)
+boton.Text = "Noclip: DESACTIVADO"
+boton.TextColor3 = Color3.new(1, 1, 1)
+boton.TextSize = 14
+boton.Font = Enum.Font.GothamBold
+boton.Parent = frame
+
+local botonCorner = Instance.new("UICorner")
+botonCorner.CornerRadius = UDim.new(0, 8)
+botonCorner.Parent = boton
+
+-- BOTON CERRAR
+local cerrar = Instance.new("TextButton")
+cerrar.Size = UDim2.new(0.8, 0, 0, 35)
+cerrar.Position = UDim2.new(0.1, 0, 0, 120)
+cerrar.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
+cerrar.Text = "Cerrar"
+cerrar.TextColor3 = Color3.new(1, 1, 1)
+cerrar.TextSize = 14
+cerrar.Font = Enum.Font.Gotham
+cerrar.Parent = frame
+
+-- ACTIVAR / DESACTIVAR
+boton.MouseButton1Click:Connect(function()
+
+    activo = not activo
+
+    if activo then
+        boton.Text = "Noclip: ACTIVADO"
+        boton.BackgroundColor3 = Color3.fromRGB(35, 160, 80)
+    else
+        boton.Text = "Noclip: DESACTIVADO"
+        boton.BackgroundColor3 = Color3.fromRGB(180, 45, 45)
+    end
+
+end)
+
+-- ATRAVESAR OBJETOS
+local conexion
+
+conexion = RunService.Stepped:Connect(function()
+
+    if not activo then return end
+
+    local personaje = player.Character
+    if not personaje then return end
+
+    for _, objeto in ipairs(personaje:GetDescendants()) do
+
+        if objeto:IsA("BasePart") then
+            objeto.CanCollide = false
+        end
+
+    end
+
+end)
+
+-- CERRAR INTERFAZ
+cerrar.MouseButton1Click:Connect(function()
+    activo = false
+    gui:Destroy()
+    conexion:Disconnect()
+end)
